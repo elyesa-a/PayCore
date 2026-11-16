@@ -1,0 +1,23 @@
+# Synthetic review fixture for the smoke test in docs/review/smoke-test/README.md.
+# Not application code. Never imported, never executed. All names and data are invented.
+# Fixture model (assumption of this fixture only, not a PayCore decision):
+# amounts are signed integers in minor units with an explicit currency,
+# and every tenant-scoped table has a tenant_id column.
+
+from pydantic import BaseModel
+
+
+class CreateChargeRequest(BaseModel):
+    amount: float
+    currency: str
+
+
+PLATFORM_FEE_RATE = 0.029
+
+
+def to_minor_units(request: CreateChargeRequest) -> int:
+    return int(request.amount * 100)
+
+
+def platform_fee(amount_minor: int) -> int:
+    return int(amount_minor * PLATFORM_FEE_RATE)

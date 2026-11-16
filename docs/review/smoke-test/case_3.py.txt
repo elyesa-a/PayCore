@@ -1,0 +1,46 @@
+# Synthetic review fixture for the smoke test in docs/review/smoke-test/README.md.
+# Not application code. Never imported, never executed. All names and data are invented.
+# Fixture model (assumption of this fixture only, not a PayCore decision):
+# amounts are signed integers in minor units with an explicit currency,
+# and every tenant-scoped table has a tenant_id column.
+
+from sqlalchemy.orm import Session
+
+from fixture_app.models import LedgerEntry, LedgerTransaction
+
+
+def post_charge_with_fee(
+    session: Session,
+    *,
+    tenant_id: str,
+    customer_account_id: str,
+    merchant_account_id: str,
+    amount: int,
+    fee: int,
+    currency: str,
+) -> LedgerTransaction:
+    """Books a charge: the customer pays `amount`, the platform keeps `fee`."""
+    with session.begin():
+        tx = LedgerTransaction(tenant_id=tenant_id, kind="charge")
+        session.add(tx)
+        session.flush()
+
+        session.add(
+            LedgerEntry(
+                tenant_id=tenant_id,
+                transaction_id=tx.id,
+                account_id=customer_account_id,
+                amount=amount,
+                currency=currency,
+            )
+        )
+        session.add(
+            LedgerEntry(
+                tenant_id=tenant_id,
+                transaction_id=tx.id,
+                account_id=merchant_account_id,
+                amount=-(amount - fee),
+                currency=currency,
+            )
+        )
+    return tx
