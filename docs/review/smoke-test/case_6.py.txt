@@ -1,0 +1,46 @@
+# Synthetic review fixture for the smoke test in docs/review/smoke-test/README.md.
+# Not application code. Never imported, never executed. All names and data are invented.
+# Fixture model (assumption of this fixture only, not a PayCore decision):
+# amounts are signed integers in minor units with an explicit currency,
+# and every tenant-scoped table has a tenant_id column.
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from fixture_app.auth import AuthContext, require_api_key
+from fixture_app.db import get_session
+from fixture_app.models import Charge
+
+router = APIRouter()
+
+BASIS_POINTS = 10_000
+
+
+def platform_fee(amount_minor: int, fee_basis_points: int) -> int:
+    """Fee in minor units, rounded half up, integer arithmetic only."""
+    return (amount_minor * fee_basis_points + BASIS_POINTS // 2) // BASIS_POINTS
+
+
+@router.get("/charges")
+def list_charges(
+    limit: int = 50,
+    auth: AuthContext = Depends(require_api_key),
+    session: Session = Depends(get_session),
+):
+    limit = max(1, min(limit, 100))
+    charges = session.execute(
+        select(Charge)
+        .where(Charge.tenant_id == auth.tenant_id)
+        .order_by(Charge.created_at.desc(), Charge.id.desc())
+        .limit(limit)
+    ).scalars()
+    return [
+        {
+            "id": charge.id,
+            "amount": charge.amount,
+            "currency": charge.currency,
+            "status": charge.status,
+        }
+        for charge in charges
+    ]

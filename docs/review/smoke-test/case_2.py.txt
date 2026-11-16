@@ -1,0 +1,62 @@
+# Synthetic review fixture for the smoke test in docs/review/smoke-test/README.md.
+# Not application code. Never imported, never executed. All names and data are invented.
+# Fixture model (assumption of this fixture only, not a PayCore decision):
+# amounts are signed integers in minor units with an explicit currency,
+# and every tenant-scoped table has a tenant_id column.
+
+import stripe
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from fixture_app.config import settings
+from fixture_app.db import get_session
+from fixture_app.models import Charge, LedgerEntry
+
+router = APIRouter()
+
+
+@router.post("/webhooks/stripe")
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: str = Header(...),
+    session: Session = Depends(get_session),
+):
+    payload = await request.body()
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, stripe_signature, settings.stripe_webhook_secret
+        )
+    except (ValueError, stripe.error.SignatureVerificationError):
+        raise HTTPException(status_code=400)
+
+    if event["type"] == "checkout.session.completed":
+        checkout = event["data"]["object"]
+        charge = session.execute(
+            select(Charge).where(
+                Charge.stripe_checkout_session_id == checkout["id"]
+            )
+        ).scalar_one()
+
+        with session.begin_nested():
+            session.add(
+                LedgerEntry(
+                    tenant_id=charge.tenant_id,
+                    transaction_id=charge.ledger_transaction_id,
+                    account_id=charge.clearing_account_id,
+                    amount=charge.amount,
+                    currency=charge.currency,
+                )
+            )
+            session.add(
+                LedgerEntry(
+                    tenant_id=charge.tenant_id,
+                    transaction_id=charge.ledger_transaction_id,
+                    account_id=charge.revenue_account_id,
+                    amount=-charge.amount,
+                    currency=charge.currency,
+                )
+            )
+        session.commit()
+
+    return {"received": True}

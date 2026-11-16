@@ -1,0 +1,30 @@
+# Synthetic review fixture for the smoke test in docs/review/smoke-test/README.md.
+# Not application code. Never imported, never executed. All names and data are invented.
+# Fixture model (assumption of this fixture only, not a PayCore decision):
+# amounts are signed integers in minor units with an explicit currency,
+# and every tenant-scoped table has a tenant_id column.
+
+import json
+
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.orm import Session
+
+from fixture_app.db import get_session
+from fixture_app.services import mark_charge_paid
+
+router = APIRouter()
+
+
+@router.post("/webhooks/stripe")
+async def stripe_webhook(
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    event = json.loads(await request.body())
+
+    if event["type"] == "checkout.session.completed":
+        checkout = event["data"]["object"]
+        mark_charge_paid(session, checkout_session_id=checkout["id"])
+        session.commit()
+
+    return {"received": True}
